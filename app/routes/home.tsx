@@ -499,7 +499,7 @@ export default function Home() {
 
                 <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
                   <KeySelector
-                    title="原調"
+                    title=" 原調 (需自行設置)"
                     selectedKey={baseKey}
                     onChange={setBaseKey}
                     activeClassName="bg-slate-900 text-white border-slate-900"
@@ -666,6 +666,44 @@ export default function Home() {
                 {errorMessage}
               </p>
             )}
+
+            <section className="rounded-2xl border border-slate-200 bg-white/90 p-5 sm:p-6">
+              <h2 className="font-display text-lg font-semibold text-slate-900">本網頁運作原理</h2>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-700">1) 載入與解析</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    檔案會在瀏覽器本機解析，不需上傳遠端伺服器。
+                  </p>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-700">2) 轉調計算</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    先由原調與目標調性計算半音差，再加上手動微調半音，得到最終轉調值。
+                  </p>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-700">3) 音高與速度分離</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    使用 SoundTouch 演算法，讓音高（Pitch）與速度（Tempo）可獨立調整，預設速度 100% 以維持時長。
+                  </p>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-700">4) 匯出 MP3</p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    會先離線渲染成轉換後音訊，再用 MP3 編碼器輸出檔案，匯出結果與預聽一致。
+                  </p>
+                </article>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs leading-relaxed text-indigo-700">
+                音高倍率 = 2^(半音 / 12)，速度倍率 = 速度% / 100，最終總倍數 = 音高倍率 × 速度倍率；
+                轉換後時長約為原始時長 / 速度倍率。
+              </div>
+            </section>
           </div>
         </div>
       </section>
