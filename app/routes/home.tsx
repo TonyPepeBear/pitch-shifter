@@ -51,6 +51,7 @@ export default function Home() {
   const isPlayingRef = useRef(false);
   const playheadRef = useRef(0);
   const playbackRateRef = useRef(1);
+  const previousPlaybackRateRef = useRef(1);
   const playheadLoopRef = useRef<() => void>(() => undefined);
 
   const keyShift = useMemo(
@@ -86,8 +87,40 @@ export default function Home() {
   }, [playheadSeconds]);
 
   useEffect(() => {
+    const previousRate = previousPlaybackRateRef.current;
+
     playbackRateRef.current = playbackRate;
-  }, [playbackRate]);
+    previousPlaybackRateRef.current = playbackRate;
+
+    if (!audioBuffer) {
+      return;
+    }
+
+    const currentRawOffset = clamp(playheadRef.current * previousRate, 0, audioBuffer.duration);
+    const nextPlayhead = currentRawOffset / playbackRate;
+
+    if (!isPlayingRef.current || !audioContextRef.current || !sourceNodeRef.current) {
+      startOffsetRef.current = currentRawOffset;
+      playheadRef.current = nextPlayhead;
+      setPlayheadSeconds(nextPlayhead);
+      return;
+    }
+
+    const elapsed = audioContextRef.current.currentTime - startContextTimeRef.current;
+    const liveRawOffset = clamp(
+      startOffsetRef.current + elapsed * previousRate,
+      0,
+      audioBuffer.duration
+    );
+
+    startOffsetRef.current = liveRawOffset;
+    startContextTimeRef.current = audioContextRef.current.currentTime;
+    sourceNodeRef.current.playbackRate.value = playbackRate;
+
+    const livePlayhead = liveRawOffset / playbackRate;
+    playheadRef.current = livePlayhead;
+    setPlayheadSeconds(livePlayhead);
+  }, [audioBuffer, playbackRate]);
 
   const cancelPlayheadLoop = useCallback(() => {
     if (playheadRafRef.current !== null) {
@@ -264,15 +297,6 @@ export default function Home() {
       setPlayheadSeconds(maxPlayhead);
     }
   }, [audioBuffer, playbackRate]);
-
-  useEffect(() => {
-    if (!audioBuffer || !isPlayingRef.current) {
-      return;
-    }
-
-    const keepPosition = playheadRef.current;
-    void startPlayback(keepPosition);
-  }, [audioBuffer, playbackRate, startPlayback]);
 
   useEffect(() => {
     return () => {
