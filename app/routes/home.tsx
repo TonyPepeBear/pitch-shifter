@@ -76,6 +76,8 @@ export default function Home() {
   );
 
   const tempoRatio = useMemo(() => tempoPercent / 100, [tempoPercent]);
+  const totalMultiplier = useMemo(() => pitchRatio * tempoRatio, [pitchRatio, tempoRatio]);
+  const originalDuration = useMemo(() => audioBuffer?.duration ?? 0, [audioBuffer]);
 
   const processedDuration = useMemo(() => {
     if (!audioBuffer) {
@@ -615,12 +617,21 @@ export default function Home() {
                       +1%
                     </button>
                   </div>
+
+                  <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
+                    已預設優先維持時長，速度微調預設為 100%。若你希望歌曲更快或更慢，再調整此滑桿。
+                  </div>
                 </section>
 
                 <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <StatCard label="目前升降調" value={`${formatSigned(totalSemitoneShift)} 半音`} />
                   <StatCard label="音高倍率" value={`${pitchRatio.toFixed(3)}x`} />
                   <StatCard label="速度倍率" value={`${tempoRatio.toFixed(3)}x`} />
+                  <StatCard label="最終總倍數" value={`${totalMultiplier.toFixed(3)}x`} />
+                </section>
+
+                <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <StatCard label="原始時長" value={formatTime(originalDuration)} />
                   <StatCard label="預估時長" value={formatTime(processedDuration)} />
                 </section>
 
@@ -635,7 +646,7 @@ export default function Home() {
                 </button>
 
                 <p className="text-center text-xs text-slate-500">
-                  變調與速度已分離：可在維持調性的前提下微調播放速度，匯出結果會同步套用。
+                  變調預設維持原始時長（速度 100%），可再用速度微調做細節修正；匯出會完整套用所有設定。
                 </p>
               </div>
             ) : (
