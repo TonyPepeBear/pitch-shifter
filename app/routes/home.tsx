@@ -667,15 +667,10 @@ function StatCard({ label, value }: { label: string; value: string }) {
 }
 
 async function renderMp3Blob(audio: AudioBuffer): Promise<Blob> {
-  const lamejs = await import("lamejs");
-  const EncoderCtor = lamejs.Mp3Encoder ?? lamejs.default?.Mp3Encoder;
-
-  if (!EncoderCtor) {
-    throw new Error("無法載入 MP3 編碼器");
-  }
+  const { Mp3Encoder } = await import("@breezystack/lamejs");
 
   const channels = clamp(audio.numberOfChannels, 1, 2);
-  const encoder = new EncoderCtor(channels, audio.sampleRate, MP3_BITRATE);
+  const encoder = new Mp3Encoder(channels, audio.sampleRate, MP3_BITRATE);
   const leftSamples = floatToInt16(audio.getChannelData(0));
   const rightSamples =
     channels > 1
