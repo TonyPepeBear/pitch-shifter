@@ -1506,6 +1506,11 @@ sharp@^0.34.5:
     "@img/sharp-win32-ia32" "0.34.5"
     "@img/sharp-win32-x64" "0.34.5"
 
+soundtouchjs@^0.3.0:
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/soundtouchjs/-/soundtouchjs-0.3.0.tgz#8d65e641b3939843b9b6729d2603d804530fe0f2"
+  integrity sha512-P/+SwnIE4BLrMbYK8aB8+GfXRfLv3+BV8HFMrEqOuF0F9BsI3sKEN1T+kY/JqiVURcCQgr50BC8D/uVzE/GozQ==
+
 source-map-js@^1.2.1:
   version "1.2.1"
   resolved "https://registry.yarnpkg.com/source-map-js/-/source-map-js-1.2.1.tgz#1ce5650fddd87abc099eda37dcff024c2667ae46"

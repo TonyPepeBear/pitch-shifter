@@ -12,11 +12,22 @@ import type { Route } from "./+types/home";
 const KEYS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const MANUAL_SHIFT_MIN = -12;
 const MANUAL_SHIFT_MAX = 12;
+const TEMPO_MIN_PERCENT = 90;
+const TEMPO_MAX_PERCENT = 110;
 const MP3_BITRATE = 192;
 const MP3_BLOCK_SIZE = 1152;
-const PREVIEW_SAMPLE_RATE = 44100;
 
 type AudioContextCtor = new () => AudioContext;
+
+type PitchShifterLike = {
+  pitch: number;
+  tempo: number;
+  percentagePlayed: number;
+  connect: (toNode: AudioNode) => void;
+  disconnect: () => void;
+  on: (eventName: string, cb: (detail: { timePlayed: number }) => void) => void;
+  off: (eventName?: string | null) => void;
+};
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -39,20 +50,15 @@ export default function Home() {
   const [baseKey, setBaseKey] = useState("C");
   const [targetKey, setTargetKey] = useState("C");
   const [manualShift, setManualShift] = useState(0);
+  const [tempoPercent, setTempoPercent] = useState(100);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playheadSeconds, setPlayheadSeconds] = useState(0);
+  const [rawProgressSeconds, setRawProgressSeconds] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const playheadRafRef = useRef<number | null>(null);
-  const startContextTimeRef = useRef(0);
-  const startOffsetRef = useRef(0);
+  const pitchShifterRef = useRef<PitchShifterLike | null>(null);
+  const rawProgressRef = useRef(0);
   const isPlayingRef = useRef(false);
-  const playheadRef = useRef(0);
-  const playbackRateRef = useRef(1);
-  const previousPlaybackRateRef = useRef(1);
-  const playheadLoopRef = useRef<() => void>(() => undefined);
 
   const keyShift = useMemo(
     () => getClosestSemitoneDistance(baseKey, targetKey),
@@ -64,17 +70,24 @@ export default function Home() {
     [keyShift, manualShift]
   );
 
-  const playbackRate = useMemo(
+  const pitchRatio = useMemo(
     () => Math.pow(2, totalSemitoneShift / 12),
     [totalSemitoneShift]
   );
+
+  const tempoRatio = useMemo(() => tempoPercent / 100, [tempoPercent]);
 
   const processedDuration = useMemo(() => {
     if (!audioBuffer) {
       return 0;
     }
-    return audioBuffer.duration / playbackRate;
-  }, [audioBuffer, playbackRate]);
+    return audioBuffer.duration / tempoRatio;
+  }, [audioBuffer, tempoRatio]);
+
+  const playheadSeconds = useMemo(
+    () => rawProgressSeconds / tempoRatio,
+    [rawProgressSeconds, tempoRatio]
+  );
 
   const canExport = Boolean(audioBuffer) && !isExporting && !isDecoding;
 
@@ -83,80 +96,8 @@ export default function Home() {
   }, [isPlaying]);
 
   useEffect(() => {
-    playheadRef.current = playheadSeconds;
-  }, [playheadSeconds]);
-
-  useEffect(() => {
-    const previousRate = previousPlaybackRateRef.current;
-
-    playbackRateRef.current = playbackRate;
-    previousPlaybackRateRef.current = playbackRate;
-
-    if (!audioBuffer) {
-      return;
-    }
-
-    const currentRawOffset = clamp(playheadRef.current * previousRate, 0, audioBuffer.duration);
-    const nextPlayhead = currentRawOffset / playbackRate;
-
-    if (!isPlayingRef.current || !audioContextRef.current || !sourceNodeRef.current) {
-      startOffsetRef.current = currentRawOffset;
-      playheadRef.current = nextPlayhead;
-      setPlayheadSeconds(nextPlayhead);
-      return;
-    }
-
-    const elapsed = audioContextRef.current.currentTime - startContextTimeRef.current;
-    const liveRawOffset = clamp(
-      startOffsetRef.current + elapsed * previousRate,
-      0,
-      audioBuffer.duration
-    );
-
-    startOffsetRef.current = liveRawOffset;
-    startContextTimeRef.current = audioContextRef.current.currentTime;
-    sourceNodeRef.current.playbackRate.value = playbackRate;
-
-    const livePlayhead = liveRawOffset / playbackRate;
-    playheadRef.current = livePlayhead;
-    setPlayheadSeconds(livePlayhead);
-  }, [audioBuffer, playbackRate]);
-
-  const cancelPlayheadLoop = useCallback(() => {
-    if (playheadRafRef.current !== null) {
-      window.cancelAnimationFrame(playheadRafRef.current);
-      playheadRafRef.current = null;
-    }
-  }, []);
-
-  const stopSourceNode = useCallback(() => {
-    if (!sourceNodeRef.current) {
-      return;
-    }
-
-    sourceNodeRef.current.onended = null;
-    try {
-      sourceNodeRef.current.stop();
-    } catch {}
-    sourceNodeRef.current.disconnect();
-    sourceNodeRef.current = null;
-  }, []);
-
-  const stopPlayback = useCallback(
-    (resetPlayhead: boolean) => {
-      stopSourceNode();
-      cancelPlayheadLoop();
-      setIsPlaying(false);
-      isPlayingRef.current = false;
-
-      if (resetPlayhead) {
-        startOffsetRef.current = 0;
-        playheadRef.current = 0;
-        setPlayheadSeconds(0);
-      }
-    },
-    [cancelPlayheadLoop, stopSourceNode]
-  );
+    rawProgressRef.current = rawProgressSeconds;
+  }, [rawProgressSeconds]);
 
   const ensureAudioContext = useCallback(async () => {
     if (typeof window === "undefined") {
@@ -182,130 +123,155 @@ export default function Home() {
     return audioContextRef.current;
   }, []);
 
-  playheadLoopRef.current = () => {
-    const context = audioContextRef.current;
-
-    if (!context || !sourceNodeRef.current || !audioBuffer || !isPlayingRef.current) {
+  const disposePitchShifter = useCallback(() => {
+    const shifter = pitchShifterRef.current;
+    if (!shifter) {
       return;
     }
 
-    const elapsed = context.currentTime - startContextTimeRef.current;
-    const currentOffset = startOffsetRef.current + elapsed * playbackRateRef.current;
+    shifter.disconnect();
+    shifter.off("play");
+    pitchShifterRef.current = null;
+  }, []);
 
-    if (currentOffset >= audioBuffer.duration) {
-      stopSourceNode();
-      cancelPlayheadLoop();
-      startOffsetRef.current = 0;
-      playheadRef.current = 0;
-      setPlayheadSeconds(0);
+  const ensurePitchShifter = useCallback(async () => {
+    if (!audioBuffer) {
+      return null;
+    }
+
+    if (pitchShifterRef.current) {
+      return pitchShifterRef.current;
+    }
+
+    const context = await ensureAudioContext();
+    const { PitchShifter } = await import("soundtouchjs");
+
+    const shifter = new PitchShifter(context, audioBuffer, 1024, () => {
       setIsPlaying(false);
       isPlayingRef.current = false;
-      return;
-    }
+      rawProgressRef.current = audioBuffer.duration;
+      setRawProgressSeconds(audioBuffer.duration);
+    }) as PitchShifterLike;
 
-    const nextPlayhead = currentOffset / playbackRateRef.current;
-    playheadRef.current = nextPlayhead;
-    setPlayheadSeconds(nextPlayhead);
-    playheadRafRef.current = window.requestAnimationFrame(playheadLoopRef.current);
-  };
-
-  const startPlayback = useCallback(
-    async (fromProcessedTime?: number) => {
-      if (!audioBuffer) {
+    shifter.on("play", ({ timePlayed }) => {
+      const nextRaw = clamp(timePlayed, 0, audioBuffer.duration);
+      if (Math.abs(nextRaw - rawProgressRef.current) < 0.015) {
         return;
       }
 
-      const context = await ensureAudioContext();
-      stopSourceNode();
-      cancelPlayheadLoop();
+      rawProgressRef.current = nextRaw;
+      setRawProgressSeconds(nextRaw);
+    });
 
-      const rawOffset = (fromProcessedTime ?? playheadRef.current) * playbackRateRef.current;
-      const offset = clamp(rawOffset, 0, audioBuffer.duration);
+    shifter.pitch = pitchRatio;
+    shifter.tempo = tempoRatio;
+    shifter.percentagePlayed =
+      audioBuffer.duration > 0
+        ? clamp(rawProgressRef.current / audioBuffer.duration, 0, 1)
+        : 0;
 
-      if (offset >= audioBuffer.duration) {
-        startOffsetRef.current = 0;
-        playheadRef.current = 0;
-        setPlayheadSeconds(0);
+    pitchShifterRef.current = shifter;
+    return shifter;
+  }, [audioBuffer, ensureAudioContext, pitchRatio, tempoRatio]);
+
+  const stopPlayback = useCallback(
+    (resetToStart: boolean) => {
+      const shifter = pitchShifterRef.current;
+      if (shifter) {
+        shifter.disconnect();
+      }
+
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+
+      if (!resetToStart || !audioBuffer) {
         return;
       }
 
-      const source = context.createBufferSource();
-      source.buffer = audioBuffer;
-      source.playbackRate.value = playbackRateRef.current;
-      source.connect(context.destination);
-      source.onended = () => {
-        if (!isPlayingRef.current) {
-          return;
-        }
-
-        sourceNodeRef.current = null;
-        cancelPlayheadLoop();
-        startOffsetRef.current = 0;
-        playheadRef.current = 0;
-        setPlayheadSeconds(0);
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-      };
-
-      source.start(0, offset);
-      sourceNodeRef.current = source;
-      startOffsetRef.current = offset;
-      startContextTimeRef.current = context.currentTime;
-
-      const initialPlayhead = offset / playbackRateRef.current;
-      playheadRef.current = initialPlayhead;
-      setPlayheadSeconds(initialPlayhead);
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-      playheadRafRef.current = window.requestAnimationFrame(playheadLoopRef.current);
+      rawProgressRef.current = 0;
+      setRawProgressSeconds(0);
+      if (shifter) {
+        shifter.percentagePlayed = 0;
+      }
     },
-    [audioBuffer, cancelPlayheadLoop, ensureAudioContext, stopSourceNode]
+    [audioBuffer]
   );
 
   const pausePlayback = useCallback(() => {
-    if (!audioBuffer || !audioContextRef.current || !sourceNodeRef.current) {
+    const shifter = pitchShifterRef.current;
+    if (!shifter) {
       return;
     }
 
-    const elapsed = audioContextRef.current.currentTime - startContextTimeRef.current;
-    const currentOffset = clamp(
-      startOffsetRef.current + elapsed * playbackRateRef.current,
-      0,
-      audioBuffer.duration
-    );
-
-    stopSourceNode();
-    cancelPlayheadLoop();
-
-    startOffsetRef.current = currentOffset;
-    const nextPlayhead = currentOffset / playbackRateRef.current;
-    playheadRef.current = nextPlayhead;
-    setPlayheadSeconds(nextPlayhead);
+    shifter.disconnect();
     setIsPlaying(false);
     isPlayingRef.current = false;
-  }, [audioBuffer, cancelPlayheadLoop, stopSourceNode]);
+  }, []);
+
+  const startPlayback = useCallback(async () => {
+    if (!audioBuffer) {
+      return;
+    }
+
+    const shifter = await ensurePitchShifter();
+    if (!shifter) {
+      return;
+    }
+
+    const context = await ensureAudioContext();
+
+    if (rawProgressRef.current >= audioBuffer.duration - 0.01) {
+      rawProgressRef.current = 0;
+      setRawProgressSeconds(0);
+      shifter.percentagePlayed = 0;
+    }
+
+    shifter.connect(context.destination);
+    setIsPlaying(true);
+    isPlayingRef.current = true;
+  }, [audioBuffer, ensureAudioContext, ensurePitchShifter]);
+
+  useEffect(() => {
+    const shifter = pitchShifterRef.current;
+    if (!audioBuffer || !shifter) {
+      return;
+    }
+
+    shifter.pitch = pitchRatio;
+    shifter.tempo = tempoRatio;
+
+    if (!isPlayingRef.current) {
+      shifter.percentagePlayed = clamp(rawProgressRef.current / audioBuffer.duration, 0, 1);
+    }
+  }, [audioBuffer, pitchRatio, tempoRatio]);
 
   useEffect(() => {
     if (!audioBuffer) {
       return;
     }
 
-    const maxPlayhead = audioBuffer.duration / playbackRate;
-    if (playheadRef.current > maxPlayhead) {
-      playheadRef.current = maxPlayhead;
-      startOffsetRef.current = maxPlayhead * playbackRate;
-      setPlayheadSeconds(maxPlayhead);
+    const clampedRaw = clamp(rawProgressRef.current, 0, audioBuffer.duration);
+    if (clampedRaw === rawProgressRef.current) {
+      return;
     }
-  }, [audioBuffer, playbackRate]);
+
+    rawProgressRef.current = clampedRaw;
+    setRawProgressSeconds(clampedRaw);
+  }, [audioBuffer]);
 
   useEffect(() => {
     return () => {
-      stopPlayback(true);
+      const shifter = pitchShifterRef.current;
+      if (shifter) {
+        shifter.disconnect();
+        shifter.off("play");
+      }
+
       if (audioContextRef.current) {
         void audioContextRef.current.close();
       }
     };
-  }, [stopPlayback]);
+  }, []);
 
   const openFilePicker = () => {
     fileInputRef.current?.click();
@@ -325,6 +291,7 @@ export default function Home() {
 
       try {
         stopPlayback(true);
+        disposePitchShifter();
 
         const context = await ensureAudioContext();
         const arrayBuffer = await file.arrayBuffer();
@@ -342,7 +309,7 @@ export default function Home() {
         setIsDecoding(false);
       }
     },
-    [ensureAudioContext, stopPlayback]
+    [disposePitchShifter, ensureAudioContext, stopPlayback]
   );
 
   const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -370,12 +337,17 @@ export default function Home() {
     const nextPlayhead = Number(event.target.value);
     const safePlayhead = clamp(nextPlayhead, 0, processedDuration);
 
-    playheadRef.current = safePlayhead;
-    startOffsetRef.current = safePlayhead * playbackRateRef.current;
-    setPlayheadSeconds(safePlayhead);
+    if (!audioBuffer) {
+      return;
+    }
 
-    if (isPlayingRef.current) {
-      void startPlayback(safePlayhead);
+    const nextRawProgress = clamp(safePlayhead * tempoRatio, 0, audioBuffer.duration);
+    rawProgressRef.current = nextRawProgress;
+    setRawProgressSeconds(nextRawProgress);
+
+    if (pitchShifterRef.current) {
+      pitchShifterRef.current.percentagePlayed =
+        audioBuffer.duration > 0 ? nextRawProgress / audioBuffer.duration : 0;
     }
   };
 
@@ -389,26 +361,13 @@ export default function Home() {
     setStatusMessage(null);
 
     try {
-      const outputChannels = clamp(audioBuffer.numberOfChannels, 1, 2);
-      const outputLength = Math.max(
-        1,
-        Math.ceil((audioBuffer.duration / playbackRate) * PREVIEW_SAMPLE_RATE)
+      const renderedBuffer = await renderProcessedAudioBuffer(
+        audioBuffer,
+        totalSemitoneShift,
+        tempoRatio
       );
-      const offlineContext = new OfflineAudioContext(
-        outputChannels,
-        outputLength,
-        PREVIEW_SAMPLE_RATE
-      );
-      const source = offlineContext.createBufferSource();
-
-      source.buffer = audioBuffer;
-      source.playbackRate.value = playbackRate;
-      source.connect(offlineContext.destination);
-      source.start(0);
-
-      const renderedBuffer = await offlineContext.startRendering();
       const mp3Blob = await renderMp3Blob(renderedBuffer);
-      const exportName = buildExportFileName(fileName, totalSemitoneShift);
+      const exportName = buildExportFileName(fileName, totalSemitoneShift, tempoPercent);
 
       triggerDownload(mp3Blob, exportName);
       setStatusMessage(`匯出完成：${exportName}`);
@@ -603,9 +562,65 @@ export default function Home() {
                   </div>
                 </section>
 
-                <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-slate-700">速度微調（維持調性）</p>
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+                      {tempoPercent}%
+                    </span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min={TEMPO_MIN_PERCENT}
+                    max={TEMPO_MAX_PERCENT}
+                    step={1}
+                    value={tempoPercent}
+                    onChange={(event) => {
+                      setTempoPercent(Number(event.target.value));
+                    }}
+                    className="pitch-slider mt-4 h-2 w-full"
+                  />
+
+                  <div className="mt-2 flex justify-between text-xs text-slate-500">
+                    <span>{TEMPO_MIN_PERCENT}%</span>
+                    <span>100%</span>
+                    <span>{TEMPO_MAX_PERCENT}%</span>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTempoPercent((value) => Math.max(TEMPO_MIN_PERCENT, value - 1))
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      -1%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTempoPercent(100)}
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      回到 100%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTempoPercent((value) => Math.min(TEMPO_MAX_PERCENT, value + 1))
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      +1%
+                    </button>
+                  </div>
+                </section>
+
+                <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <StatCard label="目前升降調" value={`${formatSigned(totalSemitoneShift)} 半音`} />
-                  <StatCard label="播放倍率" value={`${playbackRate.toFixed(3)}x`} />
+                  <StatCard label="音高倍率" value={`${pitchRatio.toFixed(3)}x`} />
+                  <StatCard label="速度倍率" value={`${tempoRatio.toFixed(3)}x`} />
                   <StatCard label="預估時長" value={formatTime(processedDuration)} />
                 </section>
 
@@ -620,7 +635,7 @@ export default function Home() {
                 </button>
 
                 <p className="text-center text-xs text-slate-500">
-                  目前變調會同步調整速度，若要維持原速度請先選擇接近的目標調性。
+                  變調與速度已分離：可在維持調性的前提下微調播放速度，匯出結果會同步套用。
                 </p>
               </div>
             ) : (
@@ -723,6 +738,28 @@ async function renderMp3Blob(audio: AudioBuffer): Promise<Blob> {
   return new Blob(chunks, { type: "audio/mpeg" });
 }
 
+async function renderProcessedAudioBuffer(
+  source: AudioBuffer,
+  semitoneShift: number,
+  tempoRatio: number
+): Promise<AudioBuffer> {
+  const { PitchShifter } = await import("soundtouchjs");
+  const outputChannels = clamp(source.numberOfChannels, 1, 2);
+  const outputLength = Math.max(1, Math.ceil((source.duration / tempoRatio) * source.sampleRate) + 2048);
+  const offlineContext = new OfflineAudioContext(outputChannels, outputLength, source.sampleRate);
+  const shifter = new PitchShifter(offlineContext, source, 1024) as PitchShifterLike;
+
+  shifter.pitch = Math.pow(2, semitoneShift / 12);
+  shifter.tempo = tempoRatio;
+  shifter.percentagePlayed = 0;
+  shifter.connect(offlineContext.destination);
+
+  const rendered = await offlineContext.startRendering();
+  shifter.disconnect();
+  shifter.off("play");
+  return rendered;
+}
+
 function floatToInt16(channelData: Float32Array): Int16Array {
   const result = new Int16Array(channelData.length);
 
@@ -734,9 +771,10 @@ function floatToInt16(channelData: Float32Array): Int16Array {
   return result;
 }
 
-function buildExportFileName(originalName: string, semitoneShift: number) {
+function buildExportFileName(originalName: string, semitoneShift: number, tempoPercent: number) {
   const baseName = originalName.replace(/\.[^/.]+$/, "").trim() || "output";
-  return `${baseName}_shift_${formatSigned(semitoneShift)}.mp3`;
+  const tempoSuffix = tempoPercent === 100 ? "" : `_tempo_${tempoPercent}pct`;
+  return `${baseName}_shift_${formatSigned(semitoneShift)}${tempoSuffix}.mp3`;
 }
 
 function triggerDownload(blob: Blob, fileName: string) {
