@@ -15,10 +15,12 @@ import {
   buildExportFileName,
   triggerDownload,
 } from "~/utils/helpers";
+import type { TranslationKey } from "~/i18n";
 
 type AudioContextCtor = new () => AudioContext;
+type TranslateFn = (key: TranslationKey, params?: Record<string, string>) => string;
 
-export function useAudioEngine() {
+export function useAudioEngine(t: TranslateFn) {
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [fileName, setFileName] = useState("");
   const [isDecoding, setIsDecoding] = useState(false);
@@ -82,7 +84,7 @@ export function useAudioEngine() {
 
   const ensureAudioContext = useCallback(async () => {
     if (typeof window === "undefined") {
-      throw new Error("目前環境不支援音訊功能");
+      throw new Error(t("engine.noAudioSupport"));
     }
 
     if (!audioContextRef.current) {
@@ -91,7 +93,7 @@ export function useAudioEngine() {
         (window as Window & { webkitAudioContext?: AudioContextCtor }).webkitAudioContext;
 
       if (!ctor) {
-        throw new Error("瀏覽器不支援 Web Audio API");
+        throw new Error(t("engine.noWebAudioAPI"));
       }
 
       audioContextRef.current = new ctor();
@@ -102,7 +104,7 @@ export function useAudioEngine() {
     }
 
     return audioContextRef.current;
-  }, []);
+  }, [t]);
 
   const disposePitchShifter = useCallback(() => {
     const shifter = pitchShifterRef.current;
@@ -261,7 +263,7 @@ export function useAudioEngine() {
   const loadFile = useCallback(
     async (file: File) => {
       if (!file.type.startsWith("audio/")) {
-        setErrorMessage("請選擇音訊檔案（例如 MP3、WAV、OGG）");
+        setErrorMessage(t("engine.invalidFile"));
         setStatusMessage(null);
         return;
       }
@@ -280,17 +282,17 @@ export function useAudioEngine() {
 
         setAudioBuffer(decoded);
         setFileName(file.name);
-        setStatusMessage(`已載入：${file.name}`);
+        setStatusMessage(t("engine.loaded", { name: file.name }));
       } catch (error) {
         console.error(error);
-        setErrorMessage("音訊解析失敗，請確認檔案格式是否正確");
+        setErrorMessage(t("engine.decodeFailed"));
         setAudioBuffer(null);
         setFileName("");
       } finally {
         setIsDecoding(false);
       }
     },
-    [disposePitchShifter, ensureAudioContext, stopPlayback]
+    [disposePitchShifter, ensureAudioContext, stopPlayback, t]
   );
 
   const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -351,10 +353,10 @@ export function useAudioEngine() {
       const exportName = buildExportFileName(fileName, totalSemitoneShift, tempoPercent);
 
       triggerDownload(mp3Blob, exportName);
-      setStatusMessage(`匯出完成：${exportName}`);
+      setStatusMessage(t("engine.exportDone", { name: exportName }));
     } catch (error) {
       console.error(error);
-      setErrorMessage("MP3 匯出失敗，請稍後再試");
+      setErrorMessage(t("engine.exportFailed"));
     } finally {
       setIsExporting(false);
     }

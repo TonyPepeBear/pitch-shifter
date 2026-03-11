@@ -9,6 +9,8 @@ import {
 
 import type { Route } from "./+types/root";
 import "./app.css";
+import { I18nContext, useI18nState, useTranslation, getHtmlLang } from "~/i18n";
+import { type Locale } from "~/i18n";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -23,9 +25,9 @@ export const links: Route.LinksFunction = () => [
   },
 ];
 
-export function Layout({ children }: { children: React.ReactNode }) {
+function InnerLayout({ children, locale }: { children: React.ReactNode; locale: Locale }) {
   return (
-    <html lang="zh-Hant-TW">
+    <html lang={getHtmlLang(locale)}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -41,20 +43,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function Layout({ children }: { children: React.ReactNode }) {
+  const i18n = useI18nState();
+
+  return (
+    <I18nContext value={i18n}>
+      <InnerLayout locale={i18n.locale}>
+        {children}
+      </InnerLayout>
+    </I18nContext>
+  );
+}
+
 export default function App() {
   return <Outlet />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = "發生錯誤";
-  let details = "系統發生未預期錯誤，請稍後再試。";
+  const t = useTranslation();
+
+  let message = t("error.title");
+  let details = t("error.details");
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "請求失敗";
+    message = error.status === 404 ? "404" : t("error.requestFailed");
     details =
       error.status === 404
-        ? "找不到指定頁面。"
+        ? t("error.notFound")
         : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;
