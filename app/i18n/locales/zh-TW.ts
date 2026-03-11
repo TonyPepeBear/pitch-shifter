@@ -68,6 +68,15 @@ const zhTW = {
   "engine.exportFailed": "MP3 匯出失敗，請稍後再試",
   "engine.exportDone": "匯出完成：{{name}}",
 
+  // bpm
+  "bpm.label": "BPM 偵測",
+  "bpm.detecting": "正在偵測 BPM...",
+  "bpm.unknown": "無法偵測",
+  "bpm.targetLabel": "目標 BPM",
+  "bpm.clearTarget": "清除",
+  "bpm.autoTempoHint": "速度已自動調整為 {{percent}}%",
+  "stat.detectedBpm": "偵測 BPM",
+
   // error boundary
   "error.title": "發生錯誤",
   "error.details": "系統發生未預期錯誤，請稍後再試。",

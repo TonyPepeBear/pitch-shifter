@@ -70,6 +70,15 @@ const en: Record<TranslationKey, string> = {
   "engine.exportFailed": "MP3 export failed. Please try again.",
   "engine.exportDone": "Export complete: {{name}}",
 
+  // bpm
+  "bpm.label": "BPM Detection",
+  "bpm.detecting": "Detecting BPM...",
+  "bpm.unknown": "Unable to detect",
+  "bpm.targetLabel": "Target BPM",
+  "bpm.clearTarget": "Clear",
+  "bpm.autoTempoHint": "Tempo auto-adjusted to {{percent}}%",
+  "stat.detectedBpm": "Detected BPM",
+
   // error boundary
   "error.title": "Error",
   "error.details": "An unexpected error occurred. Please try again later.",

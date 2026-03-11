@@ -62,6 +62,12 @@ export default function Home() {
     canExport,
     handleExport,
 
+    detectedBpm,
+    isDetectingBpm,
+    targetBpm,
+    handleTargetBpmChange,
+    handleTempoPercentChange,
+
     errorMessage,
     statusMessage,
   } = useAudioEngine(t);
@@ -268,7 +274,7 @@ export default function Home() {
                     step={1}
                     value={tempoPercent}
                     onChange={(event) => {
-                      setTempoPercent(Number(event.target.value));
+                      handleTempoPercentChange(Number(event.target.value));
                     }}
                     className="pitch-slider mt-4 h-2 w-full"
                   />
@@ -283,7 +289,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() =>
-                        setTempoPercent((value) => Math.max(TEMPO_MIN_PERCENT, value - 1))
+                        handleTempoPercentChange(Math.max(TEMPO_MIN_PERCENT, tempoPercent - 1))
                       }
                       className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                     >
@@ -291,7 +297,7 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setTempoPercent(100)}
+                      onClick={() => handleTempoPercentChange(100)}
                       className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                     >
                       {t("tempo.reset")}
@@ -299,7 +305,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() =>
-                        setTempoPercent((value) => Math.min(TEMPO_MAX_PERCENT, value + 1))
+                        handleTempoPercentChange(Math.min(TEMPO_MAX_PERCENT, tempoPercent + 1))
                       }
                       className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                     >
@@ -312,6 +318,63 @@ export default function Home() {
                   </div>
                 </section>
 
+                <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+                  <p className="text-sm font-semibold text-slate-700">{t("bpm.label")}</p>
+
+                  <div className="mt-3 flex items-center gap-3">
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+                      {isDetectingBpm
+                        ? t("bpm.detecting")
+                        : detectedBpm !== null
+                          ? `${detectedBpm} BPM`
+                          : t("bpm.unknown")}
+                    </span>
+                  </div>
+
+                  {detectedBpm !== null && (
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <label className="text-sm text-slate-600">{t("bpm.targetLabel")}</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={999}
+                          step={1}
+                          value={targetBpm ?? ""}
+                          placeholder="—"
+                          onChange={(event) => {
+                            const raw = event.target.value;
+                            if (raw === "") {
+                              handleTargetBpmChange(null);
+                              return;
+                            }
+                            const num = Number(raw);
+                            if (!Number.isNaN(num)) {
+                              handleTargetBpmChange(Math.round(num));
+                            }
+                          }}
+                          className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
+                        />
+                        {targetBpm !== null && (
+                          <button
+                            type="button"
+                            onClick={() => handleTargetBpmChange(null)}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+                          >
+                            {t("bpm.clearTarget")}
+                          </button>
+                        )}
+                      </div>
+
+                      {targetBpm !== null && (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700">
+                          {t("bpm.autoTempoHint", { percent: String(tempoPercent) })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+
                 <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <StatCard label={t("stat.currentShift")} value={`${formatSigned(totalSemitoneShift)} ${t("stat.semitone")}`} />
                   <StatCard label={t("stat.pitchRatio")} value={`${pitchRatio.toFixed(3)}x`} />
@@ -319,9 +382,19 @@ export default function Home() {
                   <StatCard label={t("stat.totalMultiplier")} value={`${totalMultiplier.toFixed(3)}x`} />
                 </section>
 
-                <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <StatCard label={t("stat.originalDuration")} value={formatTime(originalDuration)} />
                   <StatCard label={t("stat.estimatedDuration")} value={formatTime(processedDuration)} />
+                  <StatCard
+                    label={t("stat.detectedBpm")}
+                    value={
+                      isDetectingBpm
+                        ? "..."
+                        : detectedBpm !== null
+                          ? `${detectedBpm}`
+                          : "—"
+                    }
+                  />
                 </section>
 
                 <button

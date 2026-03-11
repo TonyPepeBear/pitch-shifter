@@ -1,8 +1,10 @@
 export const KEYS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 export const MANUAL_SHIFT_MIN = -12;
 export const MANUAL_SHIFT_MAX = 12;
-export const TEMPO_MIN_PERCENT = 90;
-export const TEMPO_MAX_PERCENT = 110;
+export const TEMPO_MIN_PERCENT = 50;
+export const TEMPO_MAX_PERCENT = 150;
+export const BPM_MIN = 60;
+export const BPM_MAX = 200;
 
 export function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));

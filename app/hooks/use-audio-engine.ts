@@ -14,7 +14,10 @@ import {
   getClosestSemitoneDistance,
   buildExportFileName,
   triggerDownload,
+  TEMPO_MIN_PERCENT,
+  TEMPO_MAX_PERCENT,
 } from "~/utils/helpers";
+import { detectBpm } from "~/utils/detect-bpm";
 import type { TranslationKey } from "~/i18n";
 
 type AudioContextCtor = new () => AudioContext;
@@ -34,6 +37,9 @@ export function useAudioEngine(t: TranslateFn) {
   const [tempoPercent, setTempoPercent] = useState(100);
   const [isPlaying, setIsPlaying] = useState(false);
   const [rawProgressSeconds, setRawProgressSeconds] = useState(0);
+  const [detectedBpm, setDetectedBpm] = useState<number | null>(null);
+  const [isDetectingBpm, setIsDetectingBpm] = useState(false);
+  const [targetBpm, setTargetBpm] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -282,7 +288,16 @@ export function useAudioEngine(t: TranslateFn) {
 
         setAudioBuffer(decoded);
         setFileName(file.name);
+        setDetectedBpm(null);
+        setTargetBpm(null);
         setStatusMessage(t("engine.loaded", { name: file.name }));
+
+        // BPM 偵測（非阻塞）
+        setIsDetectingBpm(true);
+        detectBpm(decoded)
+          .then((bpm) => setDetectedBpm(bpm))
+          .catch(() => setDetectedBpm(null))
+          .finally(() => setIsDetectingBpm(false));
       } catch (error) {
         console.error(error);
         setErrorMessage(t("engine.decodeFailed"));
@@ -362,6 +377,27 @@ export function useAudioEngine(t: TranslateFn) {
     }
   };
 
+  const handleTargetBpmChange = useCallback(
+    (value: number | null) => {
+      setTargetBpm(value);
+      if (value !== null && detectedBpm !== null && detectedBpm > 0) {
+        const percent = Math.round((value / detectedBpm) * 100);
+        setTempoPercent(clamp(percent, TEMPO_MIN_PERCENT, TEMPO_MAX_PERCENT));
+      }
+    },
+    [detectedBpm]
+  );
+
+  const handleTempoPercentChange = useCallback(
+    (percent: number) => {
+      setTempoPercent(percent);
+      if (detectedBpm !== null && detectedBpm > 0) {
+        setTargetBpm(Math.round((detectedBpm * percent) / 100));
+      }
+    },
+    [detectedBpm]
+  );
+
   const handlePlayToggle = () => {
     if (!audioBuffer) {
       return;
@@ -411,6 +447,12 @@ export function useAudioEngine(t: TranslateFn) {
     isExporting,
     canExport,
     handleExport,
+
+    detectedBpm,
+    isDetectingBpm,
+    targetBpm,
+    handleTargetBpmChange,
+    handleTempoPercentChange,
 
     errorMessage,
     statusMessage,
